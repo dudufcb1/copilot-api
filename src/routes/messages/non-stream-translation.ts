@@ -1,3 +1,6 @@
+import type { Model } from "~/services/copilot/get-models"
+
+import { state } from "~/lib/state"
 import {
   type ChatCompletionResponse,
   type ChatCompletionsPayload,
@@ -29,8 +32,11 @@ import { mapOpenAIStopReasonToAnthropic } from "./utils"
 export function translateToOpenAI(
   payload: AnthropicMessagesPayload,
 ): ChatCompletionsPayload {
+  const modelId = translateModelName(payload.model)
+  const model = state.models?.data.find((m) => m.id === modelId)
+  const thinkingBudget = getThinkingBudget(payload, model)
   return {
-    model: translateModelName(payload.model),
+    model: modelId,
     messages: translateAnthropicMessagesToOpenAI(
       payload.messages,
       payload.system,
@@ -43,14 +49,29 @@ export function translateToOpenAI(
     user: payload.metadata?.user_id,
     tools: translateAnthropicToolsToOpenAI(payload.tools),
     tool_choice: translateAnthropicToolChoiceToOpenAI(payload.tool_choice),
+    thinking_budget: thinkingBudget,
   }
+}
+
+function getThinkingBudget(
+  payload: AnthropicMessagesPayload,
+  model: Model | undefined,
+): number | undefined {
+  const thinking = payload.thinking
+  if (model && thinking) {
+    const maxThinkingBudget = model.capabilities.supports.max_thinking_budget
+    if (maxThinkingBudget && thinking.budget_tokens !== undefined) {
+      return Math.min(thinking.budget_tokens, maxThinkingBudget)
+    }
+  }
+  return undefined
 }
 
 function translateModelName(model: string): string {
   // Subagent requests use a specific model number which Copilot doesn't support
   if (model.startsWith("claude-sonnet-4-")) {
     return model.replace(/^claude-sonnet-4-.*/, "claude-sonnet-4")
-  } else if (model.startsWith("claude-opus-")) {
+  } else if (model.startsWith("claude-opus-4-")) {
     return model.replace(/^claude-opus-4-.*/, "claude-opus-4")
   }
   return model
